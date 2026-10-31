@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-restart-button
+      name: '@local/dsh-restart-button'
+      config: {}

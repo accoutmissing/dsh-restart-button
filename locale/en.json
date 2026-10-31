@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Restart Button",
+    "description": "Adds a sidebar-foot button that hot-reloads plugin updates in place (keeping running turns alive) and falls back to a full app restart when a reload cannot take."
+  }
+}
