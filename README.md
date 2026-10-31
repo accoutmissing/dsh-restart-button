@@ -141,11 +141,24 @@ Full restart has only been exercised on **Windows** — that is the only platfor
 
 ## Relationship to `dsh-unlag`
 
-[`dsh-unlag`](https://github.com/regrevia/dsh-unlag) solves the same underlying problem with a different trade-off, and reading it changed this plugin's design. It never restarts; it always hot-reloads and repairs the page. It also shims the `/plugins` route to serve stand-in modules for stale revisions, because the desktop shell freezes its boot manifest at startup and an old page asking for an old revision would 404 and take the app down with exit code 1.
+[`dsh-unlag`](https://github.com/regrevia/dsh-unlag) by [regrevia](https://github.com/regrevia) (MIT) solves the same underlying problem with a different trade-off. Reading it changed this plugin's design, and the debt is specific enough to name.
 
-This plugin does not do the shim. Reloading the page is enough here — the page is rebuilt against the new manifest, and there is no need to keep an old client generation alive against the shell's frozen manifest. Maintaining a compatibility layer the platform does not sanction is a cost paid on every upstream change.
+Design was compared against **`dsh-unlag` v1.14.16**. This is not a fork and shares no commit history; it is an independent implementation.
 
-What this plugin *did* borrow: hot reload as the first choice, a CSRF header, defensive handler wrapping, log rotation, nested-transaction retry, and the generation constant as honest proof that new code is running.
+**Adopted from reading it** — the first five are close enough to call borrowed rather than independently arrived at:
+
+| Borrowed | Where it lives in this plugin |
+|---|---|
+| The `transactions? cannot be nested` retry, including the regex | `isNestedTransaction()` in `index.js` |
+| `RELOAD_TIMEOUT_MS = 20_000`, `LOG_MAX_BYTES = 1_000_000` | `index.js` constants |
+| `oneLine()` — sanitising every field before it reaches a log line | `oneLine()` in `index.js` |
+| A custom request header as the CSRF gate on write routes | `BUTTON_HEADER` / `fromOwnPage()` |
+| Hot reload as the first choice rather than the fallback | `softReload()`, and the button's default action |
+| The generation constant as the only honest answer to "did the reload load new code" | `BUILD` |
+
+**Not adopted:** its `/plugins` route shim. `dsh-unlag` serves stand-in modules for stale revisions because the desktop shell freezes its boot manifest at startup, and an old page asking for an old revision would 404 and take the app down with exit code 1. This plugin reloads the page instead, so there is no old client generation to keep alive — and no compatibility layer the platform does not sanction to maintain on every upstream change.
+
+Everything else — the launcher chain, the job-object escape, the wscript shortcut, the kill-and-wait-and-relaunch sequence — is not in `dsh-unlag` at all. That one never restarts.
 
 ---
 
