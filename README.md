@@ -1,167 +1,169 @@
 # dsh-restart-button
 
-A one-click **reload / restart** button for the [DeepSeek Harness](https://github.com/deepseek-ai) desktop app, sitting at the bottom of the sidebar.
+**简体中文** · [English](README.en.md)
 
-Installing or updating a plugin normally means quitting the app and opening it again. This plugin puts a button in the sidebar that does it for you — and, more importantly, tries **not** to restart at all first.
+一个装在侧边栏底部的**重载 / 重启**按钮，给 [DeepSeek Harness](https://github.com/deepseek-ai) 桌面版用。
+
+装插件、更新插件，过去都得关掉应用再打开一次。这个插件在侧边栏放了一个按钮替你做这件事——更重要的是，它**尽量不重启**。
 
 ```
-click  ->  hot-reload plugins in place   (nothing running is lost)
+点击  ->  原地热重载插件      （正在跑的东西一样不丢）
            |
-           +-- reload could not take  ->  button turns into "Full restart"
-                                           click again -> app relaunches
+           +-- 热重载不成立  ->  按钮变成「完全重启」
+                                  再点一次 -> 应用重新拉起
 ```
 
 ---
 
-## Why not just restart?
+## 为什么不干脆重启？
 
-Because `app.relaunch()` is not the cheap operation it looks like.
+因为 `app.relaunch()` 没有它看起来那么便宜。
 
-When you replace a plugin package, the Harness's own HMR layer can evict the changed modules and start them again **inside the running host process**. Turns in flight, subagents, terminals, queued messages, unsent drafts — all survive, because nothing is killed.
+替换插件包之后，Harness 自己的 HMR 层可以在**运行中的宿主进程内部**驱逐已变更的模块再把它们启动起来。正在跑的轮次、子代理、终端、排队中的消息、还没发出去的草稿——全都在，因为什么都没被杀掉。
 
-A full restart is the fallback for the cases where that is impossible (a module that cannot be evicted, a package that moved on disk), not the default.
+完全重启是「这件事不可能做到时」的兜底（模块驱逐不掉、包在磁盘上挪了位置），不是默认动作。
 
-So the button defaults to the cheap path and only offers the expensive one when the Harness reports it is actually needed — `hmr.reconcileProfile()` returns `restartReason: 'module-comparison' | 'package-moved'` when it is.
+所以按钮默认走便宜的那条路，只有当 Harness 明确报告必须重启时才提供贵的那条——`hmr.reconcileProfile()` 返回 `restartReason: 'module-comparison' | 'package-moved'` 就属于这种情况。
 
 ---
 
-## Install
+## 安装
 
-The plugin is a Cordis bundle. Install it from a checkout:
+这是一个 Cordis bundle。先从源码检出：
 
 ```bash
 git clone https://github.com/accoutmissing/dsh-restart-button.git
 ```
 
-Then install the bundle from that directory (the Harness exposes this through its plugin manager, and via the `plugin_manager` tool when an agent is driving):
+然后用那个目录安装 bundle（Harness 通过它的插件管理器暴露这个能力；由 agent 驱动时就是 `plugin_manager` 工具）：
 
 ```jsonc
 { "action": "install_bundle", "target": "D:/path/to/dsh-restart-button" }
 ```
 
-A successful install reports `application: "applied"`. The button appears at the bottom of the sidebar immediately — no restart needed to install *it*.
+安装成功会返回 `application: "applied"`。按钮立刻出现在侧边栏底部——安装它本身不需要重启。
 
-To update later: `git pull`, then press the button.
-
----
-
-## Usage
-
-| Button shows | Means | What a click does |
-|---|---|---|
-| ⟳ **Reload plugins** | idle | hot-reloads changed plugin code in place |
-| ⟳ *Reloading…* | working | — |
-| ✓ **Reloaded** | done | resets to idle after 3s |
-| ⟳ **Full restart** | hot reload reported it cannot take | kills and relaunches the app |
-| ⚠ **Reload failed** | error (also logged) | resets to idle after 3s |
+以后更新：`git pull`，然后按按钮。
 
 ---
 
-## How it works
+## 使用
 
-### Host side (`index.js`)
-
-Three routes registered through `webServer`:
-
-| Route | Method | Purpose |
+| 按钮显示 | 含义 | 点击会发生什么 |
 |---|---|---|
-| `/plugins/dsh-restart-button/__state` | GET | self-description: version, code generation, capabilities, pid |
+| ⟳ **刷新插件** | 空闲 | 原地热重载已变更的插件代码 |
+| ⟳ *正在刷新…* | 进行中 | — |
+| ✓ **已刷新** | 完成 | 3 秒后回到空闲 |
+| ⟳ **完全重启** | 热重载报告无法原地完成 | 杀掉应用并重新拉起 |
+| ⚠ **刷新失败** | 出错（同时写日志） | 3 秒后回到空闲 |
+
+---
+
+## 实现
+
+### 宿主侧（`index.js`）
+
+通过 `webServer` 注册三条路由：
+
+| 路由 | 方法 | 用途 |
+|---|---|---|
+| `/plugins/dsh-restart-button/__state` | GET | 自描述：版本、代码代号、能力、pid |
 | `/plugins/dsh-restart-button/__reload` | POST | `hmr.runExclusive(() => hmr.reconcileProfile())` |
-| `/plugins/dsh-restart-button/__restart` | POST | full kill-and-relaunch |
+| `/plugins/dsh-restart-button/__restart` | POST | 完整 kill 后重新拉起 |
 
-The hot-reload path is wrapped in `hmr.runExclusive()` because `reconcileProfile()` participates in the host's transaction queue; a concurrent automatic reload surfaces as `transactions cannot be nested`, which is caught and retried with backoff (3 attempts, 400 ms × n). A 20 s ceiling stops a wedged reload from holding the button forever.
+热重载这条路套在 `hmr.runExclusive()` 里，因为 `reconcileProfile()` 参与宿主的串行队列；与自动重载撞车时会冒出一个 `transactions cannot be nested`，这个错误被识别并退避重试（3 次，400 ms × n）。另加 20 秒上限，免得一次卡死的重载把按钮永久占住。
 
-### Client side (`client.js`)
+### 客户端（`client.js`）
 
-A state machine in `sidebar.footer.action`, order 90. Its state lives in a **module-level store, not component state**: the slot is re-projected on every store update, which remounts the component. Component `useState` would snap back to `idle` between clicks — the store survives.
+挂在 `sidebar.footer.action` 上的状态机，order 90。它的状态放在**模块级 store，而不是组件 state 里**：这个插槽在每次 store 更新时都会被重新投影，组件随之重挂载。用组件 `useState` 的话，两次点击之间状态会被打回 `idle`；模块级 store 活得下来。
 
-### Knowing whether new client code actually loaded
+### 判断新的客户端代码有没有真的加载
 
-The host returns `clientStamp` — the mtime of `client.js`. The page records `LOADED_AT` when the module is evaluated. If `clientStamp > LOADED_AT + 1000 ms`, this page is running stale client code, and it reloads itself once the plugin bytes are guaranteed new.
+宿主返回 `clientStamp`——`client.js` 的 mtime。页面在模块求值的那一刻记下 `LOADED_AT`。如果 `clientStamp > LOADED_AT + 1000 ms`，说明这个页面跑的是旧的客户端代码，等插件字节确认是新的之后它自己整页重载。
 
-The first implementation compared `clientModules.graph().rev` instead. That is **wrong**: `rev` only advances when the HMR watcher registers a rebuild, so editing `client.js` by hand leaves the graph unchanged and the page is declared fresh forever. File stamps it is.
+第一版实现比的是 `clientModules.graph().rev`。那是**错的**：`rev` 只在 HMR 监视器登记重建时才前进，手改 `client.js` 图表纹丝不动，页面会被永远判成「最新」。现在改成比文件戳。
 
-### The launcher chain (Windows)
+### 启动链路（Windows）
 
-The part that took the longest, and the part worth reading if you plan to do anything similar.
+这是耗时最长的一部分，也是你打算做类似事情时最值得读的一部分。
 
-A plugin runs inside the host process, which is a plain Node child of Electron (`ELECTRON_RUN_AS_NODE=1`). It cannot call `app.relaunch()`. So the restart is handed to the OS:
+插件跑在宿主进程里，而宿主是 Electron 的普通 Node 子进程（`ELECTRON_RUN_AS_NODE=1`）。它调不到 `app.relaunch()`。所以重启被交给操作系统：
 
 ```
-host plugin
-  └─ powershell  launch.ps1        creates a .lnk and asks explorer.exe to open it
-       └─ explorer.exe             owns the shortcut launch
-            └─ wscript.exe         shortcut target; GUI subsystem, no console
+宿主插件
+  └─ powershell  launch.ps1        生成 .lnk，请 explorer.exe 打开它
+       └─ explorer.exe             持有快捷方式的启动
+            └─ wscript.exe         快捷方式目标；GUI 子系统，不建控制台
                  └─ boot.vbs       WScript.Shell.Run "powershell ... ", 0, False
-                      └─ powershell restart.ps1    kill app, wait for port, relaunch
+                      └─ powershell restart.ps1    杀应用、等端口释放、重新拉起
 ```
 
-Four constraints shaped this, each found the hard way:
+四条约束塑造了它，每一条都是撞出来的：
 
-1. **`detached: true` does not work here.** The host runs inside a Windows Job Object with `KILL_ON_JOB_CLOSE`; a process mapped to `DETACHED_PROCESS` is terminated the instant it is created — no error, no log, nothing in the process table. The launcher must be spawned normally and die on its own.
-2. **explorer.exe must be the parent.** Anything the host spawns inherits the job object. Going through explorer breaks the chain. (This is also why the launcher is a `.lnk` and not a direct `Start-Process`.)
-3. **The shortcut must target `wscript.exe`, not `powershell.exe`.** wscript is a GUI-subsystem binary and never allocates a console, so nothing black flashes on screen. Measured: targeting powershell adds exactly one `CASCADIA_HOSTING_WINDOW_CLASS` window; targeting wscript adds zero.
-4. **`.lnk` `Arguments` must use double quotes.** Single-quoted paths make explorer silently do nothing — no window, no error, no log. Since the real executable path contains spaces, this matters.
+1. **`detached: true` 在这里不能用。** 宿主跑在带 `KILL_ON_JOB_CLOSE` 的 Windows Job Object 里；映射成 `DETACHED_PROCESS` 的进程在创建瞬间就被终止——没有报错、没有日志、进程表里查不到。启动器必须用普通方式 spawn，然后自己退出。
+2. **explorer.exe 必须是父进程。** 宿主 spawn 出来的任何东西都会继承那个 job object。经过 explorer 一环才能断链。（这也是为什么启动器是一个 `.lnk` 而不是直接 `Start-Process`。）
+3. **快捷方式必须指向 `wscript.exe`，不是 `powershell.exe`。** wscript 是 GUI 子系统程序，永远不分配控制台，所以屏幕上不会闪黑框。实测：指向 powershell 恰好多出一个 `CASCADIA_HOSTING_WINDOW_CLASS` 窗口；指向 wscript 多出零个。
+4. **`.lnk` 的 `Arguments` 必须用双引号。** 用单引号包路径会让 explorer 静默什么都不做——没窗口、没报错、没日志。而真实可执行文件路径里带空格，所以这条是必须修的。
 
-The helper also refuses to run if the target process's `.Path` doesn't match the expected executable, so it can never kill the wrong app.
-
----
-
-## Security
-
-Both POST routes require the header `x-dsh-restart-button` and a loopback remote address.
-
-The header is the load-bearing part. A loopback check alone only proves the request came from this machine — a form on any website you visit can POST to `127.0.0.1`, and a restart is a denial-of-service on whatever you were doing. Custom headers cannot be set cross-origin without a preflight the server never approves, so the header check is what actually stops it. GET on a write route answers `405`, not a redirect or a status page.
+helper 还会在目标进程的 `.Path` 与预期可执行文件不匹配时拒绝执行，因此它不可能杀错应用。
 
 ---
 
-## Logs and temp files
+## 安全
 
-- `~/.dsh/restart-button.log` — one line per action, rotated to `.1` at 1 MB. Every line is sanitised: control characters become spaces so a hostile field cannot forge entries.
-- `%TEMP%\dsh-restart\<timestamp>\` — the generated `restart.ps1`, `boot.vbs`, `launch.ps1` and `launch.log` for each invocation. Pruned to the 20 most recent.
+两条 POST 路由都要求请求头 `x-dsh-restart-button` 以及 loopback 来源地址。
 
-`?dry=1` on the restart route writes the scripts and stops. `?probe=1` runs the whole launcher chain against a stub helper that logs one line and exits — useful to verify the chain still works without actually killing the app.
+真正承重的是那个请求头。只查 loopback 只能证明请求来自本机——你访问的任何网站上的一个表单都能 POST 到 `127.0.0.1`，而一次重启对你正在做的事情就是拒绝服务。自定义请求头在跨源时无法携带，除非有一次服务端永远不会批准的预检，所以真正拦住它的是请求头检查。对写路由发 GET 会得到 `405`，不是重定向也不是状态页。
 
 ---
 
-## Verified behaviour
+## 日志与临时文件
 
-| Claim | Evidence |
+- `~/.dsh/restart-button.log` —— 每次动作一行，到 1 MB 轮转成 `.1`。每一行都做过消毒：控制字符换成空格，恶意的字段无法伪造日志条目。
+- `%TEMP%\dsh-restart\<timestamp>\` —— 每次调用生成的 `restart.ps1`、`boot.vbs`、`launch.ps1` 和 `launch.log`。只保留最近 20 个。
+
+重启路由加 `?dry=1` 只生成脚本不执行。加 `?probe=1` 会用替身 helper（只记一行日志然后退出）跑完整条启动链路——用于在不真正杀掉应用的前提下验证链路仍然可用。
+
+---
+
+## 已实测的行为
+
+| 声明 | 证据 |
 |---|---|
-| Hot reload really swaps code | A module-level generation constant went `undefined → gen-1 → gen-2 → gen-3` across three edits, each followed by one `POST __reload` (200, `warnings: 0`, `pending: 0`) |
-| No console window appears | `EnumWindows` count of visible console windows before/during/after: `delta = 0` |
-| Full restart works | Self-test harness: old pid dies, new pid alive; the relaunch is also visible in the real app by the GUI port changing |
-| Full restart is not a black box | `launch.log` + `restart.log` per run record every step |
-| CSRF guard works | POST without the header: `403 missing x-dsh-restart-button header` |
-| Route method guards work | GET on both write routes: `405` |
+| 热重载真的换了代码 | 模块级代号常量在三次修改中依次走过 `undefined → gen-1 → gen-2 → gen-3`，每次修改后各发一次 `POST __reload`（200，`warnings: 0`，`pending: 0`） |
+| 不出现控制台窗口 | 用 `EnumWindows` 统计可见控制台窗口，前后相比 `delta = 0` |
+| 完全重启可用 | 自测脚手架：旧 pid 死、新 pid 活；在真实应用里也能从 GUI 端口变化看出来 |
+| 完全重启不是黑盒 | 每次运行都有 `launch.log` + `restart.log` 记录每一步 |
+| CSRF 守门有效 | 不带请求头的 POST：`403 missing x-dsh-restart-button header` |
+| 路由方法守门有效 | 对两条写路由发 GET：`405` |
 
-Full restart has only been exercised on **Windows** — that is the only platform the launcher chain targets. Hot reload uses a documented host service and is not Windows-specific, but it has not been tested elsewhere.
+完全重启只在此前的 **Windows** 上验证过——启动链路本身只针对这个平台。热重载用的是有文档的宿主服务，不限于 Windows，但尚未在其他平台测过。
 
 ---
 
-## Relationship to `dsh-unlag`
+## 与 `dsh-unlag` 的关系
 
-[`dsh-unlag`](https://github.com/regrevia/dsh-unlag) by [regrevia](https://github.com/regrevia) (MIT) solves the same underlying problem with a different trade-off. Reading it changed this plugin's design, and the debt is specific enough to name.
+[`dsh-unlag`](https://github.com/regrevia/dsh-unlag)（作者 [regrevia](https://github.com/regrevia)，MIT）用另一种取舍解决同一个底层问题。读它改变了本插件的设计，这笔账具体到能点名。
 
-Design was compared against **`dsh-unlag` v1.14.16**. This is not a fork and shares no commit history; it is an independent implementation.
+设计对照的是 **`dsh-unlag` v1.14.16**。这不是 fork，没有共同提交历史；是独立实现。
 
-**Adopted from reading it** — the first five are close enough to call borrowed rather than independently arrived at:
+**从阅读中吸收的部分**——前五项已经接近到该算「借用」而不是「各自想到」：
 
-| Borrowed | Where it lives in this plugin |
+| 借用 | 在本插件中的位置 |
 |---|---|
-| The `transactions? cannot be nested` retry, including the regex | `isNestedTransaction()` in `index.js` |
-| `RELOAD_TIMEOUT_MS = 20_000`, `LOG_MAX_BYTES = 1_000_000` | `index.js` constants |
-| `oneLine()` — sanitising every field before it reaches a log line | `oneLine()` in `index.js` |
-| A custom request header as the CSRF gate on write routes | `BUTTON_HEADER` / `fromOwnPage()` |
-| Hot reload as the first choice rather than the fallback | `softReload()`, and the button's default action |
-| The generation constant as the only honest answer to "did the reload load new code" | `BUILD` |
+| `transactions? cannot be nested` 的重试机制，含正则 | `index.js` 的 `isNestedTransaction()` |
+| `RELOAD_TIMEOUT_MS = 20_000`、`LOG_MAX_BYTES = 1_000_000` | `index.js` 常量 |
+| `oneLine()` —— 每个字段进日志行之前先消毒 | `index.js` 的 `oneLine()` |
+| 用自定义请求头做写路由的 CSRF 守门 | `BUTTON_HEADER` / `fromOwnPage()` |
+| 热重载优先，而不是当兜底 | `softReload()`，以及按钮的默认动作 |
+| 用代号常量作为「新代码到底有没有加载」的唯一诚实答案 | `BUILD` |
 
-**Not adopted:** its `/plugins` route shim. `dsh-unlag` serves stand-in modules for stale revisions because the desktop shell freezes its boot manifest at startup, and an old page asking for an old revision would 404 and take the app down with exit code 1. This plugin reloads the page instead, so there is no old client generation to keep alive — and no compatibility layer the platform does not sanction to maintain on every upstream change.
+**未采纳：** 它的 `/plugins` 路由 shim。`dsh-unlag` 为过期版本提供替身模块，因为桌面壳在启动时冻结启动清单，旧页面按旧 revision 请求会 404 并把应用以退出码 1 带走。本插件改走整页重载，所以没有旧客户端代次需要续命——也就不需要在每次上游变更时维护一层平台并不认可的兼容层。
 
-Everything else — the launcher chain, the job-object escape, the wscript shortcut, the kill-and-wait-and-relaunch sequence — is not in `dsh-unlag` at all. That one never restarts.
+除此之外的一切——启动链路、job object 逃逸、wscript 快捷方式、杀掉再等待再拉起的序列——`dsh-unlag` 里完全没有。它从不重启。
 
 ---
 
-## License
+## 许可证
 
 MIT
