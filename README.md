@@ -30,7 +30,7 @@ So the button defaults to the cheap path and only offers the expensive one when 
 The plugin is a Cordis bundle. Install it from a checkout:
 
 ```bash
-git clone https://github.com/<owner>/dsh-restart-button.git
+git clone https://github.com/accoutmissing/dsh-restart-button.git
 ```
 
 Then install the bundle from that directory (the Harness exposes this through its plugin manager, and via the `plugin_manager` tool when an agent is driving):
