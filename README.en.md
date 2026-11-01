@@ -9,9 +9,13 @@ Installing or updating a plugin normally means quitting the app and opening it a
 ```
 click  ->  hot-reload plugins in place   (nothing running is lost)
            |
-           +-- reload could not take  ->  button turns into "Full restart"
-                                           click again -> app relaunches
+           +-- reload did not take  ->  button becomes "Full restart"
+           |                            click again -> app relaunches
+           +-- reload did take      ->  button becomes "Full restart"
+                                        click again -> app relaunches anyway
 ```
+
+Once a reload has happened, the button only means one thing: **press again to restart**.
 
 ---
 
@@ -23,7 +27,14 @@ When you replace a plugin package, the Harness's own HMR layer can evict the cha
 
 A full restart is the fallback for the cases where that is impossible (a module that cannot be evicted, a package that moved on disk), not the default.
 
-So the button defaults to the cheap path and only offers the expensive one when the Harness reports it is actually needed — `hmr.reconcileProfile()` returns `restartReason: 'module-comparison' | 'package-moved'` when it is.
+So the button defaults to the cheap path. The expensive one is offered in exactly two cases:
+
+1. **The Harness says a restart is required** — `hmr.reconcileProfile()` returns `restartReason: 'module-comparison' | 'package-moved'`.
+2. **You press it a second time** — the reload went through, you pressed again, therefore the reload did not solve what you were doing.
+
+The second one is decidable without guessing: a reload that actually changed Client code reloads the page, which resets the button. A button still sitting there waiting for you means nothing was swapped, so a second press has nothing cheaper to offer. So within one page, the first press reloads and the second press restarts — and the label flips to "Full restart" before you do it.
+
+Accidental presses are filtered: a second click within 500 ms counts as a double click and is ignored.
 
 ---
 

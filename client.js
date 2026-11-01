@@ -73,11 +73,19 @@ window.__ModuleLoader__.load({
      * page load, so a module-level store is what actually survives a remount --
      * which also makes the second click land, when a second click is needed.
      *
-     * States: idle -> working -> reloaded (then back to idle)
+     * States: idle -> working -> reloaded (then back to idle, armed)
      *                       \-> needsRestart (the next click restarts for real)
      *                       \-> failed (then back to idle)
      *         needsRestart -> restarting (the window is about to go away)
+     *         idle + armed -> restarting (a repeat press is a restart)
      */
+    /**
+     * A double click is not a decision. The first press's answer can land before
+     * the second click arrives, and by then the button is armed — so pressing
+     * twice by accident would restart the app. This window swallows the second
+     * half of a double click while leaving a deliberate second press alone.
+     */
+    const DOUBLE_PRESS_MS = 500
     const HOLD_MS = 3000
     // Long enough for the "reloaded" label to be read before the document
     // goes away, since reloading a page is a visible interruption.
@@ -98,6 +106,19 @@ window.__ModuleLoader__.load({
     let reloadTimer
     const store = {
       state: 'idle',
+      /**
+       * A reload that went through without moving the page leaves a question
+       * open: the person pressed the same button again *because the first press
+       * did not give them what they wanted*. That second press IS the
+       * instruction — it restarts the app, and the button says so beforehand.
+       *
+       * It lives exactly as long as the document: a reload that changes Client
+       * code reloads the page, which re-evaluates this module and disarms it for
+       * free, and so does a full restart. Nothing here can compound into a
+       * restart loop.
+       */
+      armed: false,
+      lastPress: 0,
       listeners: new Set(),
       timer: undefined,
       snapshot() {
@@ -106,6 +127,12 @@ window.__ModuleLoader__.load({
       subscribe(listener) {
         store.listeners.add(listener)
         return () => store.listeners.delete(listener)
+      },
+      /** Arm the second press. Listeners see the same state, a different meaning. */
+      setArmed(next) {
+        if (store.armed === next) return
+        store.armed = next
+        for (const listener of store.listeners) listener(store.state)
       },
       clearTimer() {
         if (store.timer !== undefined) {
@@ -130,6 +157,7 @@ window.__ModuleLoader__.load({
         }
         store.listeners.clear()
         store.state = 'idle'
+        store.armed = false
       }
     }
 
@@ -198,7 +226,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function labelOf(state, t) {
+    function labelOf(state, t, armed) {
       switch (state) {
         case 'working':
           return t('working')
@@ -213,11 +241,11 @@ window.__ModuleLoader__.load({
         case 'restartFailed':
           return t('restartFailed')
         default:
-          return t('reloadTitle')
+          return armed === true ? t('restartTitle') : t('reloadTitle')
       }
     }
 
-    function styleOf(state) {
+    function styleOf(state, armed) {
       switch (state) {
         case 'working':
           return Object.assign({}, styles.button, styles.working)
@@ -231,7 +259,7 @@ window.__ModuleLoader__.load({
         case 'restarting':
           return Object.assign({}, styles.button, styles.working)
         default:
-          return styles.button
+          return armed === true ? Object.assign({}, styles.button, styles.needsRestart) : styles.button
       }
     }
 
@@ -240,21 +268,32 @@ window.__ModuleLoader__.load({
     function Control(props) {
       const t = props.t
       const [state, setState] = React.useState(store.snapshot())
+      const [armed, setArmed] = React.useState(store.armed)
 
       React.useEffect(() => {
         // Pick up whatever the store already holds: a remount while a reload is
         // running, or while the app is going down, must not look idle again.
         setState(store.snapshot())
-        return store.subscribe(setState)
+        setArmed(store.armed)
+        return store.subscribe((next) => {
+          setState(next)
+          setArmed(store.armed)
+        })
       }, [])
 
       const onClick = React.useCallback(() => {
         const now = store.snapshot()
         if (BUSY.has(now)) return
-        // The one deliberate escalation: once a reload has told us the new
-        // generation cannot be published in place, this button becomes the
-        // restart button. A click in that state is the user agreeing to it.
-        if (now === 'needsRestart') {
+        const pressedAt = Date.now()
+        if (pressedAt - store.lastPress < DOUBLE_PRESS_MS) return
+        store.lastPress = pressedAt
+        // Two ways to arrive at a restart, and both are the user agreeing to it:
+        // the host said the new generation cannot be published in place, or this
+        // document already reloaded once and this press is a repeat. A repeat
+        // press is the instruction: a reload that changed anything moves the page
+        // (which re-evaluates this module and disarms it), so a button still here
+        // and pressed again means the reload alone was not enough.
+        if (now === 'needsRestart' || store.armed === true) {
           store.set('restarting')
           void restartApp()
           return
@@ -263,6 +302,9 @@ window.__ModuleLoader__.load({
         void reloadPlugins().then((result) => {
           if (result.ok === true) {
             store.set('reloaded', HOLD_MS)
+            // From here on this button restarts, and says so once the
+            // "reloaded" hold expires.
+            store.setArmed(true)
             // Only when the host proved the Client graph changed: the running
             // page is then one generation behind and reloading the document is
             // the only way to pick the new Client code up. Same URL, so the
@@ -283,8 +325,11 @@ window.__ModuleLoader__.load({
       }, [])
 
       const wide = props.wide === true
-      const label = labelOf(state, t)
+      const label = labelOf(state, t, armed)
       const busy = BUSY.has(state)
+      // A narrow footer keeps quiet at rest, but "the next press restarts the
+      // app" is exactly what must not hide behind a tooltip.
+      const showText = wide || state !== 'idle' || armed === true
 
       return h(
         'button',
@@ -296,13 +341,13 @@ window.__ModuleLoader__.load({
           'data-state': state,
           disabled: busy,
           onClick,
-          style: styleOf(state)
+          style: styleOf(state, armed)
         },
         h(Icon, { spin: busy }),
         h('span', {
           // A wide footer shows text always; a narrow one only speaks up when
           // there is something to say, so the icon row stays quiet.
-          style: Object.assign({}, styles.text, wide || state !== 'idle' ? null : { display: 'none' })
+          style: Object.assign({}, styles.text, showText ? null : { display: 'none' })
         }, label)
       )
     }
@@ -337,7 +382,7 @@ window.__ModuleLoader__.load({
               name: 'sidebar.footer.action',
               id: 'dsh-restart-button',
               order: 90,
-              label: () => t(store.snapshot() === 'needsRestart' ? 'restartTitle' : 'reloadTitle')
+              label: () => t(store.snapshot() === 'needsRestart' || store.armed === true ? 'restartTitle' : 'reloadTitle')
             },
             component
           )
