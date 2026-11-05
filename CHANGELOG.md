@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0 — 2026-11-05
+
+**关得掉。** 桌面端更新时报「Host did not complete graceful task teardown」：壳发完
+`shutdown-complete` 就断开 IPC，剩下的散场要宿主自己做；只要有一个句柄没放手，壳等满
+10 秒就 SIGTERM，更新随之拒装。而 DSH 自己的控制器在 `dispose()` 一结束就清掉了那个
+5 秒强制退出定时器，只留下 `process.exitCode`——dispose 之后再没有任何兜底。
+
+### 新增
+
+- `shutdown-guard.js`：每个宿主进程只 arm 一次，在 IPC `disconnect` 之后留 1.5 秒让正常
+  收尾跑完，然后打印仍活着的句柄并 `process.exit(0)`。只在壳持有 IPC 通道时生效
+  （`process.send` 存在），`dsh web` 等 CLI 面不受影响。
+- `~/.dsh/shutdown-guard.log`：退出前记下 `resources` / `handles` / `requests` 快照，
+  下次再卡住就能直接点名是谁没放手，而不是靠猜。
+- `GET /plugins/dsh-restart-button/__state` 多一个 `guard` 字段（`armed` /
+  `already-armed` / `not-a-desktop-host`），用来证明守时真的装上了。
+
+### 验证
+
+- `.tmp-codex/guard-test.mjs`：真的 spawn 子进程、真的泄漏一个 ref 着的 `setInterval`、
+  真的调用 `process.disconnect()`——加载的是出货的 `shutdown-guard.js` 原件。8 条断言：
+  报 armed、泄漏时仍自己退出、退出码 0、340ms 内退出（壳的期限是 10s）、日志记下
+  disconnect / 句柄快照 / 退出码、无 IPC 的进程返回 `not-a-desktop-host`。
+
 ## 0.4.0 — 2026-11-01
 
 **第二次点击就是重启。** 之前只有 Harness 明确报告「必须重启」时按钮才肯升格成重启按钮；

@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renam
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { armShutdownGuard } from './shutdown-guard.js'
 
 const ROUTE = '/plugins/dsh-restart-button/__restart'
 const SOFT_ROUTE = '/plugins/dsh-restart-button/__reload'
@@ -570,6 +571,12 @@ export const inject = ['webServer']
 export function apply(ctx) {
   relaunchOrigin = ctx.webServer
 
+  // 退出守时：壳发完 shutdown-complete 就断开 IPC，之后进程要自己散场。
+  // 只要有一个句柄没放手，壳 10 秒后就会 SIGTERM，更新因此被拒装。
+  // 注意：不要叫 guard —— 文件里已有一个路由包装函数 `function guard(path, handler)`，
+  // 同名 const 会在 TDZ 里把那个函数遮掉，路由注册时直接 "guard is not a function"。
+  const shutdownGuard = armShutdownGuard({ graceMs: 1500 })
+
   const sendState = (res) => {
     const target = desktopTarget()
     const hmr = typeof ctx?.get === 'function' ? ctx.get('hmr') : undefined
@@ -587,6 +594,8 @@ export function apply(ctx) {
       mainPid: target?.mainPid ?? null,
       exe: target?.exe ?? null,
       pending: pressActive(),
+      // 退出守时的自证：只有真的装上了才可能散去那个 10 秒超时警告。
+      guard: shutdownGuard,
       log: LOG_FILE
     })
   }

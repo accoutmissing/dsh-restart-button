@@ -1,7 +1,9 @@
 {
   "name": "@local/dsh-restart-button",
-  "version": "0.4.0",
-  "engines": { "dsh": ">=0.2.0-rc.1 <0.3.0-0" },
+  "version": "0.5.0",
+  "engines": {
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+  },
   "private": true,
   "type": "module",
   "description": "One-click reload / restart button for the DeepSeek Harness desktop app: hot-reload plugin updates in place, fall back to a full app relaunch only when a reload cannot take.",
@@ -29,10 +31,12 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./shutdown-guard": "./shutdown-guard.js"
   },
   "files": [
     "index.js",
+    "shutdown-guard.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
