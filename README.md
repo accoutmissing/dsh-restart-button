@@ -56,6 +56,12 @@ git clone https://github.com/accoutmissing/dsh-restart-button.git
 
 ---
 
+## 宿主兼容性
+
+- 宿主 **0.2.2-rc.5**（2026-11-18 发布，现网 feed 与 npm latest 都是它）已复核，本插件不改代码即可运行；复核证据见 [CHANGELOG](CHANGELOG.md) 的 0.5.1 条目。
+- `engines.dsh` 是 `>=0.2.0-rc.1 <0.3.0-0`，按宿主口径（`semver.satisfies(range, { includePrerelease: true })`）覆盖 0.2.2-rc.5。上限停在 `<0.3.0-0` 是有意的：把没测过的版本写进范围，比范围窄一点更危险。
+- 依赖的宿主面：`ctx.hmr`（`runExclusive` / `reconcileProfile`）、`ctx.webServer.register`、`ctx.locale`、槽位 `sidebar.footer.action`。rc.3 → rc.5 之间这四样都没有消失，槽位目录两边都是 133 个。
+
 ## 使用
 
 | 按钮显示 | 含义 | 点击会发生什么 |

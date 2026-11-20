@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1 — 2026-11-20
+
+**宿主一路走到 0.2.2-rc.5（五天内 rc.1 → rc.5），回来复核了一遍：代码不用改，把测过的边界写下来。**
+
+这一版一行功能代码都没动。发 patch 的唯一理由是「复核结论要落在 tag 指得到的地方」——否则下次升级时，没人知道 rc.5 到底验过没有、验的是哪几项。
+
+- **槽位没变。** 拿 rc.3 与 rc.5 自带 `dsh-client-ui-slots` 的目录做差分：两份都是 133 个槽位/前缀，交集 133，`只在 rc.3` 与 `只在 rc.5` 各 0。按钮挂的 `sidebar.footer.action` 两边都注册在 `dsh-client-ui-cordis` 里。
+- **用到的宿主服务签名逐个对上**（读的是 rc.5 已安装的 `.d.ts`，不是记忆）：`ctx.webServer.register({ kind, path, handler })`（`dsh-host-webserver/lib/types/index.d.ts:193`；`WebRoute` 的 `kind: 'exact' | 'prefix'` 在同文件 `:38-45`）、`ctx.hmr.runExclusive<T>(operation)`（`dsh-hmr/lib/types/index.d.ts:101`）、`ctx.hmr.reconcileProfile(requiredIds?)`（`:203`，返回值里 `restartReason?: 'module-comparison' | 'package-moved'` 仍在 `:215`）、`ctx.locale.register(ns, locale, dict)` / `bind(ns)`（`dsh-client-locale/lib/types/client/index.d.ts:209` 与 `:226`）。
+- **跑着的宿主里照常工作。** `/plugins/dsh-restart-button/__state` 回 200，字段仍然齐全：`build: "gen-3"`、`canReload: true`、`canRestart: true`、`guard: "armed"`、`mainPid` 有值。（里面的 `version` 此刻还是 `0.5.0` —— 这一版只改清单与文档，宿主读的是它加载时那份 `package.json`。）
+- **范围没动。** `>=0.2.0-rc.1 <0.3.0-0` 在宿主口径（`semver.satisfies(range, { includePrerelease: true })`）下对 `0.2.2-rc.5` 判 true，无需放宽。上限停在 `<0.3.0-0` 仍然是有意的：把没测过的版本写进声明，才是真的风险。
+
 ## 0.5.0 — 2026-11-05
 
 **关得掉。** 桌面端更新时报「Host did not complete graceful task teardown」：壳发完

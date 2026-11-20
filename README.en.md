@@ -58,6 +58,12 @@ To update later: `git pull`, then press the button.
 
 ---
 
+## Host compatibility
+
+- Verified against host **0.2.2-rc.5** (released 2026-11-18 — the current feed and npm latest). No code change was needed; the evidence is in the 0.5.1 entry of the [CHANGELOG](CHANGELOG.md).
+- `engines.dsh` is `>=0.2.0-rc.1 <0.3.0-0`, which covers 0.2.2-rc.5 under the host's own reading (`semver.satisfies(range, { includePrerelease: true })`). The `<0.3.0-0` ceiling stays on purpose: declaring a version nobody tested is the real risk.
+- Host surface this plugin touches: `ctx.hmr` (`runExclusive` / `reconcileProfile`), `ctx.webServer.register`, `ctx.locale`, and the `sidebar.footer.action` slot. None of them disappeared between rc.3 and rc.5; the slot directory holds the same 133 entries on both.
+
 ## Usage
 
 | Button shows | Means | What a click does |
